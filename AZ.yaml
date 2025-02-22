@@ -1,0 +1,164 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Assignment 1
+
+Resources:
+  VPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: Assignement1 VPC
+
+  InternetGateway:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+        - Key: Name
+          Value: VPC IGW
+
+  GatewayAttachment:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  RouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Public Route Table
+  
+  Route:
+    Type: 'AWS::EC2::Route'
+    DependsOn: InternetGateway
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: '0.0.0.0/0'
+      GatewayId: !Ref InternetGateway
+
+
+  PublicSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: us-east-1a
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: VPC Public Subnet (AZ1)
+
+  SubnetRouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref RouteTable
+  
+  PrivateSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.11.0/24
+      AvailabilityZone: us-east-1a
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: VPC Private Subnet1 (AZ1)
+
+  PrivateSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.12.0/24
+      AvailabilityZone: us-east-1b
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: VPC Private Subnet2 (AZ2)
+
+  WebServerSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enable HTTP, SSH and MySQL access
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+  EC2Instance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      ImageId: ami-04e5276ebb8451442
+      InstanceType: t2.micro
+      SubnetId: !Ref PublicSubnet1
+      KeyName: lastI
+      SecurityGroupIds:
+        - !Ref WebServerSecurityGroup
+      UserData:
+        #Fn::Base64: !Sub |
+        Fn::Base64: |
+          #!/bin/bash
+          sudo dnf install -y httpd php php-mysqli mariadb105
+          sudo systemctl enable httpd
+          sudo systemctl start httpd
+          
+
+  MyDBSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: "A DBSubnetGroup for RDS instance"
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      Tags:
+        - Key: Name
+          Value: MyDBSubnetGroup
+
+  MyDBSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: "Allow access to MySQL"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0  
+          #SourceSecurityGroupId: !Ref WebServerSecurityGroup
+
+  MyDB:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      DBName: cafe_db
+      AllocatedStorage: 20
+      DBInstanceClass: db.t3.micro
+      Engine: MySQL
+      MonitoringInterval: 0
+      MasterUsername: admin
+      MasterUserPassword: Re:Start!9
+      DBSubnetGroupName: !Ref MyDBSubnetGroup
+      VPCSecurityGroups:
+        - !GetAtt MyDBSecurityGroup.GroupId
+
+#Outputs:
+  # WebsiteURL:
+  #   Description: URL of the web server
+  #   Value: !Join ['', ['http://', !GetAtt EC2Instance.PublicDnsName]]
+  # DBInstanceEndpoint:
+  #   Description: Endpoint of the RDS database instance.
+  #   Value: !GetAtt MyDB.Endpoint.Address
